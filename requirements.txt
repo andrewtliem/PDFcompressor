@@ -1,7 +1,5 @@
 Flask>=2.3.3
-Werkzeug>=3.0.1
+Werkzeug>=2.3.7
 colorama>=0.4.6
 click>=8.1.7
-tqdm>=4.66.3
-pypdf>=4.0.0
-Flask-WTF
+tqdm>=4.66.1 

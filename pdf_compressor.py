@@ -1,5 +1,5 @@
 import os
-import pypdf
+import PyPDF2
 from PIL import Image
 import io
 import tempfile
@@ -58,7 +58,7 @@ class PDFCompressor:
                 # Remove metadata if requested
                 if remove_metadata:
                     writer.remove_links()
-                    # Note: pypdf doesn't have direct metadata removal
+                    # Note: PyPDF2 doesn't have direct metadata removal
                     # but we can minimize it by not copying metadata
                 
                 # Write compressed PDF

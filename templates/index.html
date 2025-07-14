@@ -399,7 +399,6 @@
                     </div>
                 </div>
 
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="compress-btn" id="compress-btn" disabled>
                     <i class="fas fa-compress-alt"></i> Compress PDF
                 </button>
@@ -580,9 +579,6 @@
                 if (progress > 95) progress = 95;
                 progressAnim.style.width = progress + '%';
             }, 200);
-
-            const csrfToken = document.querySelector('input[name="csrf_token"]').value;
-            formData.append('csrf_token', csrfToken);
 
             fetch('/upload', { method: 'POST', body: formData })
                 .then(response => response.json())
