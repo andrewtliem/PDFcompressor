@@ -7,6 +7,7 @@ import os
 import tempfile
 import uuid
 from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 from pdf_compressor import PDFCompressor
 import logging
@@ -19,7 +20,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = 'atlverse-pdf-compressor-secret-key-2024'
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'a_default_secret_key_for_dev_only')
+csrf = CSRFProtect(app)
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -75,13 +77,17 @@ def upload_file():
             if not allowed_file(file.filename):
                 continue
             gs_quality = request.form.get('gs_quality', 'ebook')
+            # Validate gs_quality against the allowed keys in GS_QUALITY_MAP
+            if gs_quality not in GS_QUALITY_MAP:
+                gs_quality = 'ebook' # Default to ebook if invalid
+            
             filename = secure_filename(file.filename)
             name, ext = os.path.splitext(filename)
             output_filename = f"{name}_compressed{ext}"
             output_path = os.path.join(app.config['COMPRESSED_FOLDER'], f"{uuid.uuid4().hex}_{output_filename}")
             input_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4().hex}_{filename}")
             file.save(input_path)
-            gs_quality_flag = GS_QUALITY_MAP.get(gs_quality, '/ebook')
+            gs_quality_flag = GS_QUALITY_MAP.get(gs_quality) # Now gs_quality is guaranteed to be a valid key
             gs_cmd = [
                 'gs',
                 '-sDEVICE=pdfwrite',
@@ -229,4 +235,4 @@ def cleanup_files():
         return jsonify({'error': 'Cleanup failed'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001) 
+    app.run(debug=False, host='0.0.0.0', port=5001) 
