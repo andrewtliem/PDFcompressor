@@ -9,6 +9,9 @@
 
 A powerful and efficient PDF compression tool built with Python, featuring both command-line interface and modern web application.
 
+## Demo
+![PDF Compressor Demo](pdfcompressor.gif)
+
 ![atlverse PDF Compressor](https://img.shields.io/badge/atlverse-PDF%20Compressor-blue)
 ![Python](https://img.shields.io/badge/Python-3.7+-green)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
@@ -222,7 +225,3 @@ For support and questions:
 ---
 
 **Made with ❤️ by atlverse**
-
-## Demo
-
-![PDF Compressor Demo](pdfcompressor.gif)
