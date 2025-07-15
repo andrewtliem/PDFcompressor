@@ -90,13 +90,7 @@
         }
 
         #file-input {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            opacity: 0;
-            cursor: pointer;
+            display: none;
         }
 
         .settings-section {
@@ -341,6 +335,19 @@
             border-radius: 8px;
         }
 
+        .spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid #ccc;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         @media (max-width: 768px) {
             .header h1 {
                 font-size: 2rem;
@@ -369,12 +376,21 @@
 
         <div class="main-card">
             <div class="upload-area" id="upload-area">
-                <div class="upload-icon">
-                    <i class="fas fa-cloud-upload-alt"></i>
+                <input type="file" id="file-input" accept=".pdf" multiple>
+                <div id="initial-state">
+                    <div class="upload-icon">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                    </div>
+                    <div class="upload-text">Drop your PDF file here or click to browse</div>
+                    <div class="upload-hint">Maximum file size: 50MB</div>
                 </div>
-                <div class="upload-text">Drop your PDF file here or click to browse</div>
-                <div class="upload-hint">Maximum file size: 50MB</div>
-                <input type="file" id="file-input" accept=".pdf" multiple />
+                <div id="selected-state" style="display: none;">
+                     <div class="upload-icon">
+                        <i class="fas fa-file-pdf"></i>
+                    </div>
+                    <div class="upload-text" id="selected-files-text"></div>
+                    <div class="upload-hint" id="selected-files-size"></div>
+                </div>
             </div>
 
             <div class="settings-section">
@@ -407,6 +423,9 @@
             <div class="progress-container" id="progress-container"></div>
             <div class="error-container" id="error-container"></div>
             <div class="file-info" id="file-info"></div>
+            <div id="info-spinner" style="display:none;text-align:center;margin:16px 0;">
+                <span class="spinner"></span> Getting file info...
+            </div>
             <div class="result-container" id="result-container">
                 <div class="result-header">
                     <div class="result-icon">
@@ -424,254 +443,261 @@
         </div>
     </div>
 
-    <script>
-        // DOM elements
-        const uploadArea = document.getElementById('upload-area');
-        const fileInput = document.getElementById('file-input');
-        const compressBtn = document.getElementById('compress-btn');
-        const progressContainer = document.getElementById('progress-container');
-        const progressFill = document.getElementById('progress-fill');
-        const progressText = document.getElementById('progress-text');
-        const resultContainer = document.getElementById('result-container');
-        const errorContainer = document.getElementById('error-container');
-        const fileInfo = document.getElementById('file-info');
-        const infoGrid = document.getElementById('info-grid');
-        const statsGrid = document.getElementById('stats-grid');
-        const downloadBtn = document.getElementById('download-btn');
-        const qualitySlider = document.getElementById('image-quality');
-        const qualityDisplay = document.getElementById('quality-display');
-        const qualityValue = document.getElementById('quality-value');
-        const downloadZipBtn = document.getElementById('download-zip-btn');
+</body>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadArea = document.getElementById('upload-area');
+    const fileInput = document.getElementById('file-input');
+    const initialState = document.getElementById('initial-state');
+    const selectedState = document.getElementById('selected-state');
+    const selectedFilesText = document.getElementById('selected-files-text');
+    const selectedFilesSize = document.getElementById('selected-files-size');
+    const compressBtn = document.getElementById('compress-btn');
+    const progressContainer = document.getElementById('progress-container');
+    const resultContainer = document.getElementById('result-container');
+    const errorContainer = document.getElementById('error-container');
+    const fileInfo = document.getElementById('file-info');
+    const downloadZipBtn = document.getElementById('download-zip-btn');
 
-        let selectedFiles = [];
+    let selectedFiles = [];
 
-        // Event listeners
-        uploadArea.addEventListener('click', () => fileInput.click());
-        uploadArea.addEventListener('dragover', handleDragOver);
-        uploadArea.addEventListener('dragleave', handleDragLeave);
-        uploadArea.addEventListener('drop', handleDrop);
-        fileInput.addEventListener('change', function(e) {
-            handleFile(e.target.files);
-        });
-        compressBtn.addEventListener('click', compressFiles);
-        // Remove image quality slider from settings section
-        // qualitySlider.addEventListener('input', updateQualityDisplay);
-
-        // Show/hide Ghostscript quality selector
-        document.getElementById('gs-quality').addEventListener('change', function() {
-            // This listener is no longer needed as compression-method is removed
-        });
-
-        // Drag and drop handlers
-        function handleDragOver(e) {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
+    function handleFileSelection(files) {
+        if (!files || files.length === 0) {
+            return;
         }
-
-        function handleDragLeave(e) {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-        }
-
-        function handleDrop(e) {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                handleFile(files);
-            }
-        }
-
-        function handleFile(files) {
-            selectedFiles = Array.from(files);
-            compressBtn.disabled = selectedFiles.length === 0;
-            hideError();
-            hideResult();
-            
-            // Update upload area
-            uploadArea.innerHTML = `
-                <div class="upload-icon">
-                    <i class="fas fa-file-pdf"></i>
-                </div>
-                <div class="upload-text">${selectedFiles.map(f => f.name).join(', ')}</div>
-                <div class="upload-hint">${selectedFiles.map(f => formatFileSize(f.size)).join(', ')}</div>
-                <input type="file" id="file-input" accept=".pdf" multiple />
-            `;
-
-            // Clear previous info
-            fileInfo.style.display = 'block';
-            fileInfo.innerHTML = '';
-            // Show file info for each file
-            selectedFiles.forEach(file => {
-                getFileInfo(file);
-            });
-        }
-
-        // Remove image quality slider and display from HTML and JS
-        // function updateQualityDisplay() {
-        //     const value = qualitySlider.value;
-        //     qualityDisplay.textContent = value + '%';
-        //     qualityValue.textContent = value;
-        // }
-
-        function getFileInfo(file) {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            fetch('/info', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    appendFileInfo(file.name, data.info);
-                } else {
-                    appendFileInfoError(file.name, data.error || 'Unknown error');
+        selectedFiles = Array.from(files);
+        updateUIAfterFileSelection();
+        
+        fileInfo.style.display = 'block';
+        fileInfo.innerHTML = '';
+        document.getElementById('info-spinner').style.display = 'block';
+        let filesProcessed = 0;
+        selectedFiles.forEach(file => {
+            getFileInfo(file, () => {
+                filesProcessed++;
+                if (filesProcessed === selectedFiles.length) {
+                    document.getElementById('info-spinner').style.display = 'none';
                 }
-            })
-            .catch(error => {
-                appendFileInfoError(file.name, error.message || error);
             });
+        });
+        
+        fileInput.value = '';
+    }
+
+    function updateUIAfterFileSelection() {
+        hideError();
+        hideResult();
+        if (selectedFiles.length > 0) {
+            initialState.style.display = 'none';
+            selectedState.style.display = 'block';
+            selectedFilesText.textContent = selectedFiles.map(f => f.name).join(', ');
+            selectedFilesSize.textContent = selectedFiles.map(f => formatFileSize(f.size)).join(', ');
+            compressBtn.disabled = false;
+        } else {
+            initialState.style.display = 'block';
+            selectedState.style.display = 'none';
+            compressBtn.disabled = true;
         }
+    }
 
-        function appendFileInfo(filename, info) {
-            const infoDiv = document.getElementById('file-info');
-            let html = `<div class='info-block' style='margin-bottom:12px;padding:10px;background:#f8f9ff;border-radius:8px;'>`;
-            html += `<div style='font-weight:bold;color:#667eea;margin-bottom:4px;'><i class='fas fa-file-pdf'></i> ${filename}</div>`;
-            html += `<div class='info-item'><span class='info-label'>Size:</span> <span class='info-value'>${info.size_formatted}</span></div>`;
-            html += `<div class='info-item'><span class='info-label'>Pages:</span> <span class='info-value'>${info.pages}</span></div>`;
-            html += `</div>`;
-            infoDiv.innerHTML += html;
+    uploadArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => handleFileSelection(e.target.files));
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
+    uploadArea.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+    });
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFileSelection(files);
         }
+    });
+    compressBtn.addEventListener('click', compressFiles);
 
-        function appendFileInfoError(filename, error) {
-            const infoDiv = document.getElementById('file-info');
-            let html = `<div class='info-block' style='margin-bottom:12px;padding:10px;background:#fff5f5;border-radius:8px;color:#c53030;'>`;
-            html += `<div style='font-weight:bold;color:#c53030;margin-bottom:4px;'><i class='fas fa-file-pdf'></i> ${filename}</div>`;
-            html += `<div class='info-item'><span class='info-label'>Error:</span> <span class='info-value'>${error}</span></div>`;
-            html += `</div>`;
-            infoDiv.innerHTML += html;
-        }
+    function getFileInfo(file, callback) {
+        const formData = new FormData();
+        formData.append('file', file);
+        fetch('/info', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                appendFileInfo(file.name, data.info);
+            } else {
+                appendFileInfoError(file.name, data.error || 'Unknown error');
+            }
+            if (callback) callback();
+        })
+        .catch(error => {
+            appendFileInfoError(file.name, error.message || error);
+            if (callback) callback();
+        });
+    }
 
-        // Add animated progress bar for compressing
-        function compressFiles() {
-            if (!selectedFiles.length) return;
-            const formData = new FormData();
-            selectedFiles.forEach(file => formData.append('file', file));
-            formData.append('remove_metadata', document.getElementById('remove-metadata').checked);
-            formData.append('compression_method', 'ghostscript');
-            formData.append('gs_quality', document.getElementById('gs-quality').value);
+    function appendFileInfo(filename, info) {
+        const infoDiv = document.getElementById('file-info');
+        let html = `<div class='info-block' style='margin-bottom:12px;padding:10px;background:#f8f9ff;border-radius:8px;'>`;
+        html += `<div style='font-weight:bold;color:#667eea;margin-bottom:4px;'><i class='fas fa-file-pdf'></i> ${filename}</div>`;
+        html += `<div class='info-item'><span class='info-label'>Size:</span> <span class='info-value'>${info.size_formatted}</span></div>`;
+        html += `<div class='info-item'><span class='info-label'>Pages:</span> <span class='info-value'>${info.pages}</span></div>`;
+        html += `</div>`;
+        infoDiv.innerHTML += html;
+    }
 
-            progressContainer.style.display = 'block';
-            progressContainer.innerHTML = `<div class='progress-bar' style='width:100%;height:16px;background:#e1e5e9;border-radius:8px;overflow:hidden;margin-bottom:10px;'>
-                <div id='progress-anim' style='height:100%;width:0%;background:linear-gradient(90deg,#667eea,#764ba2);transition:width 0.3s;'></div>
-            </div>
-            <div class='progress-text' style='text-align:center;color:#666;font-size:0.9rem;'>Compressing files...</div>`;
-            resultContainer.style.display = 'none';
+    function appendFileInfoError(filename, error) {
+        const infoDiv = document.getElementById('file-info');
+        let html = `<div class='info-block' style='margin-bottom:12px;padding:10px;background:#fff5f5;border-radius:8px;color:#c53030;'>`;
+        html += `<div style='font-weight:bold;color:#c53030;margin-bottom:4px;'><i class='fas fa-file-pdf'></i> ${filename}</div>`;
+        html += `<div class='info-item'><span class='info-label'>Error:</span> <span class='info-value'>${error}</span></div>`;
+        html += `</div>`;
+        infoDiv.innerHTML += html;
+    }
 
-            // Animate progress bar
-            let progress = 0;
-            const progressAnim = document.getElementById('progress-anim');
-            const interval = setInterval(() => {
-                progress += Math.random() * 10;
-                if (progress > 95) progress = 95;
-                progressAnim.style.width = progress + '%';
-            }, 200);
+    function compressFiles() {
+        if (!selectedFiles.length) return;
+        const formData = new FormData();
+        selectedFiles.forEach(file => formData.append('file', file));
+        formData.append('remove_metadata', document.getElementById('remove-metadata').checked);
+        formData.append('compression_method', 'ghostscript');
+        formData.append('gs_quality', document.getElementById('gs-quality').value);
 
-            fetch('/upload', { method: 'POST', body: formData })
-                .then(response => response.json())
-                .then(data => {
+        progressContainer.style.display = 'block';
+        progressContainer.innerHTML = `<div class='progress-bar' style='width:100%;height:16px;background:#e1e5e9;border-radius:8px;overflow:hidden;margin-bottom:10px;'>
+            <div id='progress-anim' style='height:100%;width:0%;background:linear-gradient(90deg,#667eea,#764ba2);transition:width 0.3s;'></div>
+        </div>
+        <div class='progress-text' id='progress-text' style='text-align:center;color:#666;font-size:0.9rem;'>Uploading files...</div>`;
+        resultContainer.style.display = 'none';
+
+        let progressAnim = document.getElementById('progress-anim');
+        let progressText = document.getElementById('progress-text');
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/upload', true);
+
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                let percent = (e.loaded / e.total) * 100;
+                progressAnim.style.width = percent + '%';
+                progressText.textContent = `Uploading files... ${percent.toFixed(0)}%`;
+            }
+        };
+
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                progressAnim.style.width = '100%';
+                progressText.textContent = 'Processing (compressing)...';
+                let fakeProgress = 0;
+                const interval = setInterval(() => {
+                    fakeProgress += Math.random() * 10;
+                    if (fakeProgress > 95) fakeProgress = 95;
+                    progressAnim.style.width = fakeProgress + '%';
+                }, 200);
+                setTimeout(() => {
                     clearInterval(interval);
                     progressAnim.style.width = '100%';
                     setTimeout(() => { progressContainer.style.display = 'none'; }, 400);
+                    const data = JSON.parse(xhr.responseText);
                     if (data.results && data.results.length > 0) {
                         showBatchResults(data.results);
                     } else {
                         showBatchResults([]);
                     }
-                })
-                .catch(error => {
-                    clearInterval(interval);
-                    progressContainer.style.display = 'none';
-                    showBatchResults([]);
-                });
-        }
-
-        function showBatchResults(results) {
-            resultContainer.style.display = 'block';
-            let html = '';
-            if (results.length > 0 && results.some(r => r.success)) {
-                html += '<ul style="list-style:none;padding:0;">';
-                results.forEach(r => {
-                    if (r.success) {
-                        html += `<li style='margin-bottom:18px;'>
-                    <a href='${r.download_path}' download>
-                        <i class="fas fa-file-pdf"></i> ${r.compressed_filename}
-                    </a>
-                    <div style="margin-left:28px;font-size:0.97em;color:#444;">
-                        <span><b>Compressed size:</b> ${r.stats.compressed_size}</span> &nbsp;|&nbsp;
-                        <span><b>Space saved:</b> ${r.stats.space_saved}</span> &nbsp;|&nbsp;
-                        <span><b>Ratio:</b> ${r.stats.compression_ratio}</span>
-                    </div>
-                </li>`;
-                    } else {
-                        html += `<li style='margin-bottom:10px;color:red;'><i class="fas fa-file-pdf"></i> ${r.original_filename} failed: ${r.error}</li>`;
-                    }
-                });
-                html += '</ul>';
-                downloadZipBtn.style.display = 'inline-block';
-                downloadZipBtn.onclick = function() {
-                    fetch('/download-zip', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ files: results.filter(r => r.success).map(r => r.download_path) })
-                    })
-                    .then(res => res.blob())
-                    .then(blob => {
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = 'compressed_pdfs.zip';
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-                    });
-                };
+                }, 1200);
             } else {
-                html = '<div style="color:red;">No files were successfully compressed.</div>';
-                downloadZipBtn.style.display = 'none';
+                progressContainer.style.display = 'none';
+                showBatchResults([]);
             }
-            document.getElementById('batch-results').innerHTML = html;
-        }
+        };
 
-        function showError(message) {
-            errorContainer.style.display = 'block';
-            errorContainer.textContent = message;
-        }
+        xhr.onerror = function() {
+            progressContainer.style.display = 'none';
+            showBatchResults([]);
+        };
 
-        function hideError() {
-            errorContainer.style.display = 'none';
-        }
+        xhr.send(formData);
+    }
 
-        function hideResult() {
-            resultContainer.style.display = 'none';
+    function showBatchResults(results) {
+        resultContainer.style.display = 'block';
+        let html = '';
+        if (results.length > 0 && results.some(r => r.success)) {
+            html += '<ul style="list-style:none;padding:0;">';
+            results.forEach(r => {
+                if (r.success) {
+                    html += `<li style='margin-bottom:18px;'>
+                <a href='${r.download_path}' download>
+                    <i class="fas fa-file-pdf"></i> ${r.compressed_filename}
+                </a>
+                <div style="margin-left:28px;font-size:0.97em;color:#444;">
+                    <span><b>Compressed size:</b> ${r.stats.compressed_size}</span> &nbsp;|&nbsp;
+                    <span><b>Space saved:</b> ${r.stats.space_saved}</span> &nbsp;|&nbsp;
+                    <span><b>Ratio:</b> ${r.stats.compression_ratio}</span>
+                </div>
+            </li>`;
+                } else {
+                    html += `<li style='margin-bottom:10px;color:red;'><i class="fas fa-file-pdf"></i> ${r.original_filename} failed: ${r.error}</li>`;
+                }
+            });
+            html += '</ul>';
+            downloadZipBtn.style.display = 'inline-block';
+            downloadZipBtn.onclick = function() {
+                fetch('/download-zip', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ files: results.filter(r => r.success).map(r => r.download_path) })
+                })
+                .then(res => res.blob())
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'compressed_pdfs.zip';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                });
+            };
+        } else {
+            html = '<div style="color:red;">No files were successfully compressed.</div>';
+            downloadZipBtn.style.display = 'none';
         }
+        document.getElementById('batch-results').innerHTML = html;
+    }
 
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
+    function showError(message) {
+        errorContainer.style.display = 'block';
+        errorContainer.textContent = message;
+    }
 
-        // Auto-cleanup old files every hour
-        setInterval(() => {
-            fetch('/cleanup', { method: 'POST' })
-                .catch(error => console.error('Cleanup error:', error));
-        }, 3600000); // 1 hour
-    </script>
-</body>
-</html> 
+    function hideError() {
+        errorContainer.style.display = 'none';
+    }
+
+    function hideResult() {
+        resultContainer.style.display = 'none';
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    setInterval(() => {
+        fetch('/cleanup', { method: 'POST' })
+            .catch(error => console.error('Cleanup error:', error));
+    }, 3600000);
+});
+</script>
+</html>
+ 
