@@ -66,14 +66,22 @@ def upload_file():
     """Handle file upload and compression."""
     try:
         files = request.files.getlist('file')
-        if not files:
+        if not files or all(f.filename == '' for f in files):
             return jsonify({'error': 'No file selected'}), 400
+        
         results = []
+        
         for file in files:
             if file.filename == '':
                 continue
             if not allowed_file(file.filename):
+                results.append({
+                    'success': False,
+                    'original_filename': file.filename,
+                    'error': 'File type not allowed.'
+                })
                 continue
+
             gs_quality = request.form.get('gs_quality', 'ebook')
             filename = secure_filename(file.filename)
             name, ext = os.path.splitext(filename)
@@ -229,4 +237,4 @@ def cleanup_files():
         return jsonify({'error': 'Cleanup failed'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001) 
+    app.run(debug=True, host='0.0.0.0', port=8080) 

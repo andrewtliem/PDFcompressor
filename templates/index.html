@@ -427,18 +427,6 @@
                 <span class="spinner"></span> Getting file info...
             </div>
             <div class="result-container" id="result-container">
-                <div class="result-header">
-                    <div class="result-icon">
-                        <i class="fas fa-check-circle"></i>
-                    </div>
-                    <div class="result-title">Compression Completed!</div>
-                </div>
-                <div id="batch-results"></div>
-                <div style="text-align: center; margin-top: 20px;">
-                    <button class="download-btn" id="download-zip-btn" style="display:none;">
-                        <i class="fas fa-file-archive"></i> Download All as ZIP
-                    </button>
-                </div>
             </div>
         </div>
     </div>
@@ -460,6 +448,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const downloadZipBtn = document.getElementById('download-zip-btn');
 
     let selectedFiles = [];
+    let timerInterval = null;
 
     function handleFileSelection(files) {
         if (!files || files.length === 0) {
@@ -563,6 +552,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function compressFiles() {
         if (!selectedFiles.length) return;
+
+        compressBtn.disabled = true;
+        compressBtn.innerHTML = '<span class="spinner" style="width:18px;height:18px;border-width:2px;vertical-align:middle;margin-right:8px;"></span> Compressing...';
+
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+
         const formData = new FormData();
         selectedFiles.forEach(file => formData.append('file', file));
         formData.append('remove_metadata', document.getElementById('remove-metadata').checked);
@@ -587,68 +585,116 @@ document.addEventListener('DOMContentLoaded', function() {
                 let percent = (e.loaded / e.total) * 100;
                 progressAnim.style.width = percent + '%';
                 progressText.textContent = `Uploading files... ${percent.toFixed(0)}%`;
+
+                if (percent >= 99.9 && !timerInterval) {
+                    let seconds = 0;
+                    progressText.innerHTML = '<span class="spinner" style="width:16px;height:16px;border-width:2px;vertical-align:middle;margin-right:8px;"></span> Processing on server... this may take a moment.';
+                    timerInterval = setInterval(() => {
+                        seconds++;
+                        progressText.innerHTML = `<span class="spinner" style="width:16px;height:16px;border-width:2px;vertical-align:middle;margin-right:8px;"></span> Processing on server... this may take a moment. (Elapsed: ${seconds}s)`;
+                    }, 1000);
+                }
             }
         };
 
         xhr.onload = function() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            
+            compressBtn.disabled = false;
+            compressBtn.innerHTML = '<i class="fas fa-compress-alt"></i> Compress PDF';
+
             if (xhr.status === 200) {
-                progressAnim.style.width = '100%';
-                progressText.textContent = 'Processing (compressing)...';
-                let fakeProgress = 0;
-                const interval = setInterval(() => {
-                    fakeProgress += Math.random() * 10;
-                    if (fakeProgress > 95) fakeProgress = 95;
-                    progressAnim.style.width = fakeProgress + '%';
-                }, 200);
-                setTimeout(() => {
-                    clearInterval(interval);
-                    progressAnim.style.width = '100%';
-                    setTimeout(() => { progressContainer.style.display = 'none'; }, 400);
-                    const data = JSON.parse(xhr.responseText);
-                    if (data.results && data.results.length > 0) {
-                        showBatchResults(data.results);
-                    } else {
-                        showBatchResults([]);
-                    }
-                }, 1200);
+                const data = JSON.parse(xhr.responseText);
+                if (data.results && data.results.length > 0) {
+                    showBatchResults(data.results);
+                } else if (data.error) {
+                    showError(data.error);
+                } else {
+                    showBatchResults([]);
+                }
+                progressContainer.style.display = 'none';
+
             } else {
                 progressContainer.style.display = 'none';
-                showBatchResults([]);
+                showError('Upload failed with status: ' + xhr.status);
             }
         };
 
         xhr.onerror = function() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            compressBtn.disabled = false;
+            compressBtn.innerHTML = '<i class="fas fa-compress-alt"></i> Compress PDF';
             progressContainer.style.display = 'none';
-            showBatchResults([]);
+            showError('An error occurred during the upload.');
         };
 
         xhr.send(formData);
     }
 
     function showBatchResults(results) {
+        const resultContainer = document.getElementById('result-container');
         resultContainer.style.display = 'block';
-        let html = '';
-        if (results.length > 0 && results.some(r => r.success)) {
-            html += '<ul style="list-style:none;padding:0;">';
+        resultContainer.innerHTML = ''; 
+
+        let hasSuccess = results.some(r => r.success);
+
+        let headerHtml = `
+            <div class="result-header">
+                <div class="result-icon">
+                    <i class="fas ${hasSuccess ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+                </div>
+                <div class="result-title">${hasSuccess ? 'Compression Completed!' : 'Compression Failed'}</div>
+            </div>
+        `;
+        resultContainer.innerHTML += headerHtml;
+
+        let resultsHtml = '<div class="stats-grid">';
+        if (results.length > 0) {
             results.forEach(r => {
                 if (r.success) {
-                    html += `<li style='margin-bottom:18px;'>
-                <a href='${r.download_path}' download>
-                    <i class="fas fa-file-pdf"></i> ${r.compressed_filename}
-                </a>
-                <div style="margin-left:28px;font-size:0.97em;color:#444;">
-                    <span><b>Compressed size:</b> ${r.stats.compressed_size}</span> &nbsp;|&nbsp;
-                    <span><b>Space saved:</b> ${r.stats.space_saved}</span> &nbsp;|&nbsp;
-                    <span><b>Ratio:</b> ${r.stats.compression_ratio}</span>
-                </div>
-            </li>`;
+                    resultsHtml += `
+                        <div class="stat-card">
+                            <div style="font-weight:bold;margin-bottom:10px;"><i class="fas fa-file-pdf"></i> ${r.original_filename}</div>
+                            <div class="stat-value">${r.stats.compressed_size}</div>
+                            <div class="stat-label">Compressed Size</div>
+                            <hr style="margin:10px 0; border:0; border-top:1px solid #eee;">
+                            <div style="font-size:0.9em;color:#555;">
+                                Saved: ${r.stats.space_saved} (${r.stats.compression_ratio})
+                            </div>
+                            <a href="${r.download_path}" class="download-btn" download style="margin-top:15px; display:inline-block;width:auto;">
+                                <i class="fas fa-download"></i> Download
+                            </a>
+                        </div>`;
                 } else {
-                    html += `<li style='margin-bottom:10px;color:red;'><i class="fas fa-file-pdf"></i> ${r.original_filename} failed: ${r.error}</li>`;
+                    resultsHtml += `
+                        <div class="stat-card" style="background-color: #fff5f5; border-left-color: #c53030;">
+                           <div style="font-weight:bold;margin-bottom:10px;"><i class="fas fa-file-pdf"></i> ${r.original_filename}</div>
+                           <p style="color:#c53030;">Failed: ${r.error}</p>
+                        </div>`;
                 }
             });
-            html += '</ul>';
-            downloadZipBtn.style.display = 'inline-block';
-            downloadZipBtn.onclick = function() {
+             resultsHtml += '</div>';
+        } else {
+            resultsHtml = '<div style="text-align:center;color:red;">No files were processed.</div>';
+        }
+        resultContainer.innerHTML += resultsHtml;
+       
+        if (hasSuccess) {
+            let zipBtnHtml = `
+                <div style="text-align: center; margin-top: 30px;">
+                    <button class="download-btn" id="download-zip-btn">
+                        <i class="fas fa-file-archive"></i> Download All as ZIP
+                    </button>
+                </div>`;
+            resultContainer.innerHTML += zipBtnHtml;
+            
+            document.getElementById('download-zip-btn').onclick = function() {
                 fetch('/download-zip', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -665,11 +711,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     a.remove();
                 });
             };
-        } else {
-            html = '<div style="color:red;">No files were successfully compressed.</div>';
-            downloadZipBtn.style.display = 'none';
         }
-        document.getElementById('batch-results').innerHTML = html;
     }
 
     function showError(message) {
